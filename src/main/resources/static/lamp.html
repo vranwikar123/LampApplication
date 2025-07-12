@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Lamp Controller & Power Report</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; }
+        section { margin-bottom: 40px; padding: 20px; border: 1px solid #ddd; }
+        h2 { margin-top: 0; }
+        button { font-size: 1rem; padding: 8px 16px; margin-right: 10px; }
+        .status { margin-top: 10px; font-weight: bold; }
+        .success { color: green; }
+        .error { color: red; }
+        table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+        th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+        th { background: #f4f4f4; }
+        #reportTable[hidden] { display: none; }
+    </style>
+</head>
+<body>
+
+<section>
+    <h2>Lamp Control</h2>
+    <button onclick="sendLampCommand('on', lampStatus)">Turn ON</button>
+    <button onclick="sendLampCommand('off', lampStatus)">Turn OFF</button>
+    <div id="lampStatus" class="status">Ready</div>
+</section>
+
+<section>
+    <h2>Power Consumption Report</h2>
+    <label>Start: <input type="date" id="startDate"></label>
+    <label>End: <input type="date" id="endDate"></label>
+    <label>Rate (per Watt): <input type="number" id="ratePerWatt" step="0.01"></label>
+    <button onclick="generateReport()">Generate Report</button>
+    <div id="reportStatus" class="status"></div>
+
+    <table id="reportTable" hidden>
+        <thead>
+        <tr>
+            <th>Device Name</th>
+            <th>Usage Hours</th>
+            <th>Power Consumed (Wh)</th>
+            <th>Cost</th>
+        </tr>
+        </thead>
+        <tbody></tbody>
+        <tfoot>
+        <tr>
+            <th colspan="3">Total Cost</th>
+            <th id="totalCost">0.00</th>
+        </tr>
+        </tfoot>
+    </table>
+</section>
+
+<script>
+    const lampEndpoint = 'http://localhost:8080/lampapp/usage/add';
+    const reportEndpoint = 'http://localhost:8080/lampapp/report/generate';
+
+    async function sendLampCommand(status, statusElem) {
+        statusElem.textContent = `Sending "${status}"...`;
+        statusElem.className = 'status';
+
+        const payload = {
+            userId: 1,
+            deviceId: 1,
+            deviceCurrentStatus: status
+        };
+
+        try {
+            const res = await fetch(lampEndpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const text = await res.text();
+            statusElem.textContent = `✅ ${text}`;
+            statusElem.className = 'status success';
+        } catch (e) {
+            console.error(e);
+            statusElem.textContent = `❌ Error: ${e.message}`;
+            statusElem.className = 'status error';
+        }
+    }
+
+    async function generateReport() {
+        const statusElem = document.getElementById('reportStatus');
+        const table = document.getElementById('reportTable');
+        const tbody = table.querySelector('tbody');
+        const foot = document.getElementById('totalCost');
+
+        const start = document.getElementById('startDate').value;
+        const end = document.getElementById('endDate').value;
+        const rate = parseFloat(document.getElementById('ratePerWatt').value);
+
+        if (!start || !end || isNaN(rate)) {
+            statusElem.textContent = 'Please complete all fields.';
+            statusElem.className = 'status error';
+            return;
+        }
+
+        statusElem.textContent = 'Generating report...';
+        statusElem.className = 'status';
+
+        try {
+            const res = await fetch(reportEndpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ startDate: start, endDate: end, ratePerWatt: rate })
+            });
+
+            if (!res.ok) throw new Error(`Server responded ${res.status}`);
+            const data = await res.json();
+
+            tbody.innerHTML = '';
+            data.report.forEach(item => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+            <td>${item.deviceName}</td>
+            <td>${item.usageHours.toFixed(2)}</td>
+            <td>${item.powerConsumed.toFixed(2)}</td>
+            <td>${item.cost.toFixed(2)}</td>`;
+                tbody.appendChild(tr);
+            });
+            foot.textContent = data.totalCost.toFixed(2);
+
+            table.hidden = false;
+            statusElem.textContent = 'Report generated.';
+            statusElem.className = 'status success';
+        } catch (e) {
+            console.error(e);
+            statusElem.textContent = `Error: ${e.message}`;
+            statusElem.className = 'status error';
+        }
+    }
+</script>
+</body>
+</html>
